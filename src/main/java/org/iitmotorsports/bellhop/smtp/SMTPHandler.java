@@ -29,6 +29,7 @@ public class SMTPHandler {
 
     public void handle(byte[] data) {
         try {
+            log.info("Incoming email!");
             Session session = Session.getInstance(new Properties());
 
             MimeMessage message = new MimeMessage(
