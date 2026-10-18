@@ -1,42 +1,34 @@
 package org.iitmotorsports.bellhop.smtp;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.iitmotorsports.bellhop.service.NotificationDispatcher;
 import org.iitmotorsports.bellhop.service.SlackService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 import org.subethamail.smtp.MessageContext;
 import org.subethamail.smtp.MessageHandler;
 import org.subethamail.smtp.MessageHandlerFactory;
 import org.subethamail.smtp.server.SMTPServer;
 
-@Component
 @Slf4j
 public class BellhopSMTPServer {
-    private SMTPServer smtpServer;
+    private final SMTPServer smtpServer;
 
-    @Autowired
-    private SlackService slackService;
+    public BellhopSMTPServer(int smtpPort, NotificationDispatcher dispatcher) {
+        SMTPHandler handler = new SMTPHandler(dispatcher);
 
-    @Value("${bellhop.smtp.port:25000}")
-    private int port;
+        smtpServer = SMTPServer
+                .port(smtpPort)
+                .messageHandler((ctx, from, to, data) -> handler.handle(data))
+                .maxMessageSize(1024*1024)
+                .build();
+    }
 
-    @PostConstruct
-    public void onStart() {
-        log.info("Starting SMTP server on port {}...", port);
-        smtpServer = new SMTPServer(ctx -> {
-            return new SMTPHandler(ctx, slackService);
-        });
-        smtpServer.setSoftwareName("Bellhop");
-        smtpServer.setPort(port);
+    public void start() {
+        log.info("Starting Bellhop SMTP server...");
         smtpServer.start();
     }
 
-    @PreDestroy
-    public void onStop() {
-        log.info("Stopping SMTP server...");
+    public void stop() {
+        log.info("Stopping Bellhop SMTP server...");
         smtpServer.stop();
     }
 }

@@ -1,71 +1,73 @@
 package org.iitmotorsports.bellhop.smtp;
 
 import com.google.gson.*;
+import jakarta.mail.BodyPart;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.IOUtils;
 import org.iitmotorsports.bellhop.model.Action;
 import org.iitmotorsports.bellhop.model.Notification;
+import org.iitmotorsports.bellhop.service.NotificationDispatcher;
 import org.iitmotorsports.bellhop.service.SlackService;
 import org.iitmotorsports.bellhop.util.BellhopUtil;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.subethamail.smtp.MessageContext;
-import org.subethamail.smtp.MessageHandler;
 
-import javax.mail.BodyPart;
-import javax.mail.Session;
-import javax.mail.internet.MimeMessage;
-import javax.mail.internet.MimeMultipart;
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 
 
 @Slf4j
-public class SMTPHandler implements MessageHandler {
+public class SMTPHandler {
 
     private static final Gson GSON = new GsonBuilder().create();
-    private byte[] data = {};
 
-    private SlackService slackService;
+    private final NotificationDispatcher dispatcher;
 
-    public SMTPHandler(MessageContext ctx, SlackService slackService) {
-        this.slackService = slackService;
+    public SMTPHandler(NotificationDispatcher dispatcher) {
+        this.dispatcher = dispatcher;
     }
 
-    @Override
-    public void from(String from) {
-    }
-
-    @Override
-    public void recipient(String recipient) {
-    }
-
-    @Override
-    public void data(InputStream is) throws IOException {
-        data = IOUtils.toByteArray(is);
-    }
-
-    @Override
-    public void done() {
+    public void handle(byte[] data) {
         try {
-            Session s = Session.getDefaultInstance(new Properties());
-            MimeMessage mimeMsg = new MimeMessage(s, new ByteArrayInputStream(data));
-            MimeMultipart multipart = (MimeMultipart) mimeMsg.getContent();
-            if (multipart.getCount() < 2) {
-                log.error("Invalid email format. Please confirm the sender and try again.");
+            Session session = Session.getInstance(new Properties());
+
+            MimeMessage message = new MimeMessage(
+                    session,
+                    new ByteArrayInputStream(data)
+            );
+
+            if (!(message.getContent() instanceof MimeMultipart multipart)) {
+                log.error("Expected a multipart MIME message.");
                 return;
             }
-            BodyPart bp = multipart.getBodyPart(1);
-            String messageContent = (String) bp.getContent();
-            messageContent = messageContent.substring(1);
-            JsonArray array = GSON.fromJson(messageContent, JsonArray.class);
-            for (JsonElement e : array) {
-                JsonObject obj = e.getAsJsonObject();
+
+            if (multipart.getCount() < 2) {
+                log.error("Invalid email format: missing JSON body.");
+                return;
+            }
+
+            BodyPart body = multipart.getBodyPart(1);
+
+            if (!(body.getContent() instanceof String content)) {
+                log.error("Expected a text MIME body.");
+                return;
+            }
+
+            // Preserve PDM's existing leading-character workaround.
+            if (content.isEmpty()) {
+                log.error("Empty notification body.");
+                return;
+            }
+
+            String json = content.substring(1);
+
+            JsonArray array = JsonParser.parseString(json).getAsJsonArray();
+
+            for (JsonElement element : array) {
+                JsonObject obj = element.getAsJsonObject();
+
                 if (obj.isEmpty()) {
-                    log.debug("Ignoring final tag. Continuing processing.");
+                    log.debug("Ignoring trailing empty JSON object.");
                     continue;
                 }
 
@@ -73,15 +75,23 @@ public class SMTPHandler implements MessageHandler {
                 String source = obj.get("source").getAsString();
                 String dest = obj.get("dest").getAsString();
                 String filename = obj.get("file").getAsString();
-                Action action = BellhopUtil.getActionFromSourceAndDest(source, dest);
+
+                Action action = BellhopUtil.getActionFromSourceAndDest(
+                        source, dest
+                );
 
                 if (action.isInvalid()) {
-                    log.error("Transition action is invalid. Source: {}, Dest: {}", source, dest);
+                    log.error(
+                            "Invalid transition: {} -> {}",
+                            source, dest
+                    );
                     continue;
                 }
 
-                Notification notification = new Notification(username, filename, action);
-                slackService.postNotification(notification);
+                Notification notification =
+                        new Notification(username, filename, action);
+
+                dispatcher.dispatch(notification);
             }
         } catch (Exception e) {
             log.error("Error occurred while processing incoming message", e);

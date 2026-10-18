@@ -1,50 +1,83 @@
 package org.iitmotorsports.bellhop.service;
 
+import com.google.gson.Gson;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
+import org.iitmotorsports.bellhop.http.WebhookClient;
 import org.iitmotorsports.bellhop.model.Action;
 import org.iitmotorsports.bellhop.model.Notification;
 import org.iitmotorsports.bellhop.util.BellhopUtil;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpRequest.BodyPublisher;
-import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
-import java.net.http.HttpResponse.BodyHandlers;
-import java.time.Duration;
+import java.util.Map;
 
-@Service
 @Slf4j
-public class SlackService {
-    @Value("${bellhop.slack.webhook:}")
-    private String webhookURL;
+public class SlackService implements NotificationService {
+    private static final Gson GSON = new Gson();
 
-    @Autowired
-    HttpClient client;
+    public static final String MSG_SUBMITTED_FOR_APPROVAL = ":vertical_traffic_light: _%s_ has submitted *%s* for approval. The file is awaiting review and feedback from a team lead.";
+    public static final String MSG_APPROVAL = ":white_check_mark: _%s_ has approved *%s*.";
+    public static final String MSG_EDITING_REQUIRED = ":warning: _%s_ has requested changes for *%s*.";
 
-    public void postNotification(Notification notification) {
-        log.info("Sending new action w/ action {} for {}.", notification.getAction(), notification.getFilename());
-        String message = BellhopUtil.getNotificationMessage(notification);
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(webhookURL))
-                .timeout(Duration.ofSeconds(20))
-                .header("Content-Type", "application/json")
-                .POST(createBodyPublisher(message))
-                .build();
-        try {
-            HttpResponse<String> response = client.send(request, BodyHandlers.ofString());
-            log.debug("Got {} back from slack.", response.statusCode());
-        } catch (IOException | InterruptedException e) {
-            log.error("Failed to publish message to slack.", e);
+
+    private String getNotificationMessage(Notification notification) {
+        String username = notification.getUsername();
+        String filename = notification.getFilename();
+
+        if (notification.getAction() == Action.SUBMITTED_FOR_APPROVAL) {
+            return String.format(MSG_SUBMITTED_FOR_APPROVAL, username, filename);
+        } else if (notification.getAction() == Action.APPROVED) {
+            return String.format(MSG_APPROVAL, username, filename);
+        } else if (notification.getAction() == Action.EDITING_REQUIRED) {
+            return String.format(MSG_EDITING_REQUIRED, username, filename);
         }
+
+        log.error("Failed to get notification message due to an unknown state action");
+        return null;
     }
 
-    private BodyPublisher createBodyPublisher(String text) {
-        return BodyPublishers.ofString("{\"text\":\"" + text + "\"}");
+    public SlackService() {
+    }
+
+
+    @Override
+    public String getType() {
+        return "slack";
+    }
+
+    public void postNotification(Notification notification, Map<String, String> config) {
+        String url = config.get("url");
+
+        if (url == null || url.isBlank()) {
+            log.warn("Slack webhook URL is missing.");
+            return;
+        }
+
+        log.info("Sending new action w/ action {} for {}.",
+                notification.getAction(), notification.getFilename());
+
+        String message = getNotificationMessage(notification);
+        String json = GSON.toJson(Map.of("text", message));
+
+        try {
+            HttpResponse<String> response =
+                    WebhookClient.getInstance().post(url, json);
+
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.error("Slack notification failed: HTTP {} - {}",
+                        response.statusCode(), response.body());
+            } else {
+                log.debug("Slack notification sent: HTTP {}",
+                        response.statusCode());
+            }
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Slack notification interrupted.", e);
+
+        } catch (IOException e) {
+            log.error("Failed to publish message to Slack.", e);
+        }
     }
 }
