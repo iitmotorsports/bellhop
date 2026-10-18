@@ -18,7 +18,8 @@ public class NotificationDispatcher {
         this.config = config;
 
         List<NotificationService> implementations = List.of(
-                new SlackService()
+                new SlackService(),
+                new DiscordService()
         );
 
         this.services = implementations.stream()
