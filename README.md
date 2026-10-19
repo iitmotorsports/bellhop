@@ -30,7 +30,7 @@
 4. Set the Body to:
 
 ```
-[%repeatblock_begin%{"user":"%user%","source":"%source_state%","dest":"%deststatus%","file":"%filename%"},%repeatblock_end%{}]
+[%repeatblock_begin%{"user":"%user%","source":"%source_state%","dest":"%deststatus%","file":"%filename%","description":"%var_Description%"},%repeatblock_end%{}]
 ```
 
 ### Add Virtual Slack User

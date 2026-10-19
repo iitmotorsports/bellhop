@@ -32,25 +32,30 @@ public class DiscordService implements NotificationService {
     private String getNotificationMessage(Notification notification) {
         String username = notification.getUsername();
         String filename = notification.getFilename();
+        String description = notification.getDescription();
 
         return switch (notification.getAction()) {
             case SUBMITTED_FOR_APPROVAL ->
                     String.format(
-                            "**File:** %s\n**Submitted by:** %s\n\n" +
-                            "The file is awaiting review and feedback from a team lead.",
-                            filename, username
+                            """
+                                    **File:** %s
+                                    **Description:** %s
+                                    **Submitted by:** %s
+                                    
+                                    The file is awaiting review and feedback from a team lead.""",
+                            filename, description, username
                     );
 
             case APPROVED ->
                     String.format(
-                            "**File:** %s\n**Approved by:** %s",
-                            filename, username
+                            "**File:** %s\n**Description:** %s\n**Approved by:** %s",
+                            filename, description, username
                     );
 
             case EDITING_REQUIRED ->
                     String.format(
-                            "**File:** %s\n**Changes requested by:** %s",
-                            filename, username
+                            "**File:** %s\n**Description:** %s\n**Changes requested by:** %s",
+                            filename, description, username
                     );
 
             default -> null;

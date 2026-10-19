@@ -76,6 +76,7 @@ public class SMTPHandler {
                 String source = obj.get("source").getAsString();
                 String dest = obj.get("dest").getAsString();
                 String filename = obj.get("file").getAsString();
+                String description = obj.get("description").getAsString();
 
                 Action action = BellhopUtil.getActionFromSourceAndDest(
                         source, dest
@@ -90,7 +91,7 @@ public class SMTPHandler {
                 }
 
                 Notification notification =
-                        new Notification(username, filename, action);
+                        new Notification(username, filename, action, description);
 
                 dispatcher.dispatch(notification);
             }

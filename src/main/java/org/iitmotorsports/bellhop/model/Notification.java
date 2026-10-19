@@ -8,4 +8,5 @@ public class Notification {
     private final String username;
     private final String filename;
     private final Action action;
+    private final String description;
 }
